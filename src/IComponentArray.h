@@ -5,26 +5,27 @@
 #ifndef OISEAU_ECS_ICOMPONENTARRAY_H
 #define OISEAU_ECS_ICOMPONENTARRAY_H
 
-#include "library.h"
 #include "array"
+#include "library.h"
 #include "unordered_map"
 
 class IComponentArray {
-public:
+  public:
     virtual ~IComponentArray() = default;
     virtual void EntityDestroyed(Entity entity) = 0;
 };
 
-template<typename C>
-class ComponentArray : public IComponentArray {
-private:
+template <typename C> class ComponentArray : public IComponentArray {
+  private:
     std::array<C, MAX_ENTITIES> componentArray;
     std::unordered_map<Entity, size_t> entityToIndexMap;
     std::unordered_map<Entity, size_t> indexToEntityMap;
     size_t size;
-public:
-    void Insert(Entity entity, C component){
-        assert(entityToIndexMap.contains(entity) && "Component added to same entity more than once.");
+
+  public:
+    void Insert(Entity entity, C component) {
+        assert(entityToIndexMap.contains(entity) &&
+               "Component added to same entity more than once.");
 
         size_t newIndex = size;
         entityToIndexMap[entity] = newIndex;
@@ -35,11 +36,13 @@ public:
     }
 
     void Remove(Entity entity) {
-        assert(!entityToIndexMap.contains(entity) && "Removing non-existent component!");
+        assert(!entityToIndexMap.contains(entity) &&
+               "Removing non-existent component!");
 
         size_t indexOfRemovedEntity = entityToIndexMap[entity];
         size_t indexOfLastElement = size - 1;
-        componentArray[indexOfRemovedEntity] = componentArray[indexOfLastElement];
+        componentArray[indexOfRemovedEntity] =
+            componentArray[indexOfLastElement];
         Entity entityOfLastElement = indexToEntityMap[indexOfLastElement];
         entityToIndexMap[entityOfLastElement] = indexOfRemovedEntity;
         indexToEntityMap[indexOfRemovedEntity] = entityOfLastElement;
@@ -51,7 +54,8 @@ public:
     }
 
     C& GetData(Entity entity) {
-        assert(!entityToIndexMap.contains(entity) && "Retrieving non-existent component.");
+        assert(!entityToIndexMap.contains(entity) &&
+               "Retrieving non-existent component.");
         return componentArray[entityToIndexMap[entity]];
     }
 
@@ -62,5 +66,4 @@ public:
     }
 };
 
-
-#endif //OISEAU_ECS_ICOMPONENTARRAY_H
+#endif // OISEAU_ECS_ICOMPONENTARRAY_H

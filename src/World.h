@@ -13,29 +13,24 @@
 class MutEntity;
 
 class World {
-private:
-    ComponentManager componentManager {};
-    EntityManager entityManager {};
+  private:
+    ComponentManager componentManager{};
+    EntityManager entityManager{};
 
-public:
+  public:
     World() = default;
 
-    template<typename... T>
-    MutEntity Spawn(T... components);
+    template <typename... T> MutEntity Spawn(T... components);
     void Despawn(Entity entity);
 
-    template<typename... T>
-    Query<T...> Query();
+    template <typename... T> Query<T...> Query();
 
-    template<class T>
-    void AddComponent(Entity entity, T component);
+    template <class T> void AddComponent(Entity entity, T component);
 
-    template<class T>
-    void RemoveComponent(Entity entity);
+    template <class T> void RemoveComponent(Entity entity);
 
     ComponentManager& GetComponentManager();
     EntityManager& GetEntityManager();
 };
 
-
-#endif //OISEAU_ECS_WORLD_H
+#endif // OISEAU_ECS_WORLD_H

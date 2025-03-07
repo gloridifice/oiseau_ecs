@@ -5,16 +5,16 @@
 #ifndef OISEAU_ECS_ENTITYMANAGER_H
 #define OISEAU_ECS_ENTITYMANAGER_H
 
-#include "queue"
 #include "library.h"
+#include "queue"
 
 class EntityManager {
-private:
+  private:
     std::queue<Entity> availableEntities{};
     std::array<Signature, MAX_ENTITIES> signatures{};
     Entity livingEntityCount{};
 
-public:
+  public:
     EntityManager() {
         for (Entity entity = 0; entity < MAX_ENTITIES; ++entity) {
             availableEntities.push(entity);
@@ -51,9 +51,6 @@ public:
 
         return signatures[entity];
     }
-
-
 };
 
-
-#endif //OISEAU_ECS_ENTITYMANAGER_H
+#endif // OISEAU_ECS_ENTITYMANAGER_H

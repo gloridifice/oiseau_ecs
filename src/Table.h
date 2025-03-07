@@ -5,22 +5,36 @@
 #ifndef OISEAU_ECS_TABLE_H
 #define OISEAU_ECS_TABLE_H
 
-#include "unordered_map"
 #include "IComponentArray.h"
 #include "library.h"
+#include "unordered_map"
+#include "vector"
 
-class Table {
-private:
-    std::unordered_map<ComponentType, void*> componentArrayMap;
-    std::unordered_map<ComponentType, std::shared_ptr<IComponentArray>> componentArrays{};
+class Signature {
+  private:
+    std::vector<ComponentType> types{};
 
-public:
-    template<class T>
-    ComponentArray<T>* GetComponentArray() {
-        const char *typeName = typeid(T).name();
-        return componentArrays[typeName];
-    }
+  public:
+    bool operator==(const Signature& rhs) const;
+    bool operator!=(const Signature& rhs) const;
 };
 
+class Table {
+  private:
+    std::unordered_map<ComponentType, void*> componentArrayMap;
+    std::unordered_map<ComponentType, std::shared_ptr<IComponentArray>>
+        componentArrays{};
+    Signature signature;
 
-#endif //OISEAU_ECS_TABLE_H
+  public:
+    template <class T> ComponentArray<T>* get_component_array() {
+        auto type = oiseau::component_type<T>();
+        return componentArrays[type];
+    }
+
+    Table(std::vector<ComponentType> types) { this->types = types; };
+
+    void insert(Entity entity) {}
+};
+
+#endif // OISEAU_ECS_TABLE_H

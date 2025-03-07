@@ -3,3 +3,11 @@
 //
 
 #include "Table.h"
+
+bool Signature::operator==(const Signature& rhs) const {
+    return bitset == rhs.bitset;
+}
+
+bool Signature::operator!=(const Signature& rhs) const {
+    return bitset != rhs.bitset;
+}

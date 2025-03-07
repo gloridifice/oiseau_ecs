@@ -8,19 +8,16 @@
 #include "World.h"
 
 class MutEntity {
-private:
+  private:
     Entity id{};
-    World *world = nullptr;
+    World* world = nullptr;
 
-public:
-    MutEntity(World *world1, Entity id1) : world(world1), id(id1) {}
+  public:
+    MutEntity(World* world1, Entity id1) : world(world1), id(id1) {}
 
-    [[nodiscard]] Entity Id() const {
-        return id;
-    }
+    [[nodiscard]] Entity Id() const { return id; }
 
-    template<typename ... T>
-    MutEntity &AddComponents(T... component);
+    template <typename... T> MutEntity& AddComponents(T... component);
 };
 
-#endif //OISEAU_ECS_MUTENTITY_H
+#endif // OISEAU_ECS_MUTENTITY_H
