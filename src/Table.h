@@ -10,14 +10,6 @@
 #include "unordered_map"
 #include "vector"
 
-class Signature {
-  private:
-    std::vector<ComponentType> types{};
-
-  public:
-    bool operator==(const Signature& rhs) const;
-    bool operator!=(const Signature& rhs) const;
-};
 
 class Table {
   private:
