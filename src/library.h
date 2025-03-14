@@ -126,6 +126,13 @@ public:
     void* operator[](const usize index) const {
         return (static_cast<char*>(elements) + element_size * index);
     }
+
+};
+
+class ComponentInfo {
+public:
+    usize size;
+    ComponentId id;
 };
 
 class Archetype;
@@ -140,6 +147,7 @@ class Archetype {
 public:
     ArchetypeId id;
     Type type;
+    Vec<ComponentInfo> component_infos;
     Vec<Column> columns;
     HashMap<ComponentId, ArchetypeEdge> edges;
 };
@@ -162,13 +170,33 @@ private:
     HashMap<Entity, Record> entity_index{};
     HashMap<ComponentId, ArchetypeMap> component_index{};
     HashMap<Type, Archetype> archetype_index{};
+    HashMap<ComponentId, ComponentInfo> component_info_index{};
 
 private:
+    template<typename T>
+    static ComponentId component_type_of() {
+        return static_cast<u64>(typeid(T).name());
+    }
+
     void move_entity(Archetype& archetype, usize row,
                      Archetype& next_archetype) {
         // todo
     }
-    void move_entity_cause_add(Archetype& archetype, usize row, Archetype& next_archetype, void* component) {
+
+    /// [A, B, C]
+    /// [A, C, B, D]
+    /// [B, C]
+    template<typename T>
+    void move_entity_caused_by_adding(Archetype& archetype, usize row, Archetype& next_archetype, T&& component) {
+        auto& type = archetype.type;
+        auto& new_type = archetype.type;
+        if (const ComponentId id = component_type_of<T>(); component_info_index.contains(id)) {
+             for (ComponentInfo target_info : next_archetype.component_infos) {
+
+             }
+        }
+    }
+    void move_entity_caused_by_removing(Archetype& archetype, usize row, Archetype& next_archetype, void* component) {
 
     }
 
