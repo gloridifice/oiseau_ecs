@@ -3,17 +3,14 @@
 
 #include "bitset"
 #include "unordered_map"
-#include <alloca.h>
-#include <cassert>
-#include <cerrno>
 #include <cstddef>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <map>
-#include <memory>
+#include <set>
 #include <tuple>
 #include <vector>
+#include "unordered_set"
+
+#pragma region TypeAlias
 
 using i32 = int;
 using u32 = unsigned int;
@@ -23,136 +20,175 @@ using f64 = double;
 using usize = size_t;
 
 template <typename K, typename V> using HashMap = std::unordered_map<K, V>;
+template <typename V> using HashSet = std::unordered_set<V>;
+template <typename V> using Optional = std::optional<V>;
 
 template <typename T> using Vec = std::vector<T>;
 template <typename T> using Shared = std::shared_ptr<T>;
 template <typename T> using Unique = std::unique_ptr<T>;
 template <typename T> using Weak = std::weak_ptr<T>;
+template <typename T> using Set = std::set<T>;
 
-using Entity = uint64_t;
-const Entity MAX_ENTITIES = 114514;
+#pragma endregion TypeAlias
 
-using ComponentType = uintptr_t;
+using ComponentId = u64;
+using ArchetypeId = u64;
+using Entity = u64;
+using Type = Vec<ComponentId>;
+using ArchetypeSet = Set<ArchetypeId>;
 
-class UntypedPtr {
-  private:
-    void* ptr;
-    usize size;
+#pragma region EntityManager
 
-  public:
-    UntypedPtr(void* ptr, usize size) : ptr(ptr), size(size) {}
-    template <typename T> static UntypedPtr from_variable(T* ptr) {
-        auto size = sizeof(T);
-        UntypedPtr{ptr, size};
-    }
-    void copy_value_to(void* dst) { memcpy(dst, ptr, size); }
-};
+class EntityManager {
+    class Generation {
+    public:
+        enum State {
+            PopRecycled,
+            Counting
+        };
 
-class UntypedArray {
-  private:
-    void* start_ptr;
-    /// Capacity of elements;
-    usize capacity;
-    /// Count of elements
-    usize size;
-    /// Size of an element
-    usize element_byte_size;
+        State state = Counting;
 
-    void* get_ptr_at(size_t index) {
-        return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(start_ptr) +
-                                       element_byte_size * index);
-    }
+        /// This index means [it, UINT32_MAX] is not used.
+        u32 unused_entity_index = 0;
+        Vec<u32> recycled_entities{};
 
-    usize byte_size_in_memory() { return size * element_byte_size; }
-
-    usize byte_capacity_in_memory() { return capacity * element_byte_size; }
-
-    void increase() { realloca(capacity * 2); }
-
-    void realloca(usize capacity) {
-        this->capacity = capacity;
-        start_ptr = alloca(byte_capacity_in_memory());
-    }
-
-  public:
-    UntypedArray(usize element_size_in_byte, usize capacity = 4)
-        : element_byte_size(element_size_in_byte) {
-        realloca(capacity);
-    }
-
-    void push(UntypedPtr& value) {
-        if (size == capacity) {
-            increase();
+        /// If returned value is `nullopt`, you should enter next generation.
+        Optional<u32> pop_entity_index() {
+            u32 ret = unused_entity_index;
+            if (unused_entity_index < UINT32_MAX) {
+                ret = unused_entity_index;
+                unused_entity_index += 1;
+            } else {
+                if (!recycled_entities.empty()) {
+                    ret = *recycled_entities.end();
+                    recycled_entities.pop_back();
+                } else {
+                    return std::nullopt;
+                }
+            }
+            return Optional<u32>{ret};
         }
-        void* p = get_ptr_at(size);
-        value.copy_value_to(p);
-        size += 1;
+    };
+
+private:
+    const u32 MAX_GENERATION = 16;
+    u32 generation_index = 0;
+    // vec[generation][entity]
+    Vec<Generation> generations;
+
+    /// Return [generation index, entity index]
+    static std::tuple<u32, u32> parse_entity(Entity entity) {
+        auto ei = (u32)entity;
+        auto gi = (u32)(entity >> 32);
+
+        return std::make_tuple(gi, ei);
     }
 
-    UntypedPtr get(size_t index) {
-        return {get_ptr_at(index), element_byte_size};
+public:
+    EntityManager() {
+        generations = Vec<Generation>(MAX_GENERATION);
+        for (auto& g : generations) {
+            g = Generation();
+        }
     }
 
-    template <typename T> T* get_typed(usize index) {
-        return static_cast<T*>(get_ptr_at(index));
+    Entity entity() {
+        while (true) {
+            auto index = generations[generation_index].pop_entity_index();
+            if (index.has_value()) {
+                return index.value();
+            } else {
+                generation_index = (generation_index + 1) % MAX_GENERATION;
+            }
+        }
+    }
+
+    void recycle(Entity entity) {
+        auto [gi, ei] = parse_entity(entity);
+        auto& gen = generations[gi];
+        gen.recycled_entities.push_back(ei);
     }
 };
 
-class Signature {
-  private:
-    Vec<ComponentType> types{};
 
-  public:
-    bool operator==(const Signature& rhs) const;
-    bool operator!=(const Signature& rhs) const;
-    Vec<ComponentType>& get_types() { return types; }
-};
+#pragma endregion
 
-class ComponentInfo {
-  public:
-    usize size;
-};
 
-class CompnentManager {
-  private:
-    HashMap<ComponentType, ComponentInfo> infoMap;
+/// An Untyped Array
+class Column {
+private:
+    void* elements; // buffer with component data
+    usize element_size; // size of a single element
+    usize count; // number of elements
 
-  public:
-    ComponentInfo get_component_info_by_id(ComponentType type) {
-        return infoMap[type];
+public:
+    void* operator[](const usize index) const {
+        return (static_cast<char*>(elements) + element_size * index);
     }
+};
+
+class Archetype;
+
+class ArchetypeEdge {
+public:
+    Archetype& add;
+    Archetype& remove;
 };
 
 class Archetype {
-  private:
-    std::map<ComponentType, Unique<UntypedArray>> arrays{};
-
-  public:
-    Archetype(Signature& signature, std::shared_ptr<CompnentManager> manager) {
-        for (auto type : signature.get_types()) {
-            auto info = manager->get_component_info_by_id(type);
-            arrays.insert_or_assign(
-                type, std::make_shared<UntypedArray>(UntypedArray(info.size)));
-        }
-    }
-
-    void add(Entity entity, UntypedPtr ptr) {
-        for (auto& [type, array] : arrays) {
-            array->push();
-        }
-    }
-
-    void remove(Entity entity) {}
+public:
+    ArchetypeId id;
+    Type type;
+    Vec<Column> columns;
+    HashMap<ComponentId, ArchetypeEdge> edges;
 };
 
-void foo() {}
+class Record {
+public:
+    Archetype& archetype;
+    usize row;
+};
 
-namespace oiseau {
+class ArchetypeRecord {
+public:
+    usize column;
+};
 
-template <typename T> extern ComponentType component_type() {
-    return reinterpret_cast<uintptr_t>(typeid(T).name());
-}
+using ArchetypeMap = HashMap<ArchetypeId, ArchetypeRecord>;
 
-} // namespace oiseau
+class World {
+private:
+    HashMap<Entity, Record> entity_index{};
+    HashMap<ComponentId, ArchetypeMap> component_index{};
+    HashMap<Type, Archetype> archetype_index{};
+
+private:
+    void move_entity(Archetype& archetype, usize row,
+                     Archetype& next_archetype) {
+        // todo
+    }
+    void move_entity_cause_add(Archetype& archetype, usize row, Archetype& next_archetype, void* component) {
+
+    }
+
+public:
+    void* get_component(const Entity entity, const ComponentId cp) {
+        const auto& [archetype, row] = entity_index[entity];
+
+        auto& archetypes = component_index[cp];
+        if (!archetypes.contains(archetype.id)) {
+            return nullptr;
+        }
+        const auto& arche_record = archetypes[archetype.id];
+        return archetype.columns[arche_record.column][row];
+    }
+
+    void add_component(const Entity entity, const ComponentId component) {
+        const auto& [archetype, row] = entity_index[entity];
+        auto& next_archetype = archetype.edges[component].add;
+        move_entity(archetype, row, next_archetype);
+    }
+};
 
 #endif // OISEAU_ECS_LIBRARY_H
