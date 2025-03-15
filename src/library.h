@@ -78,9 +78,9 @@ private:
     Vec<Generation> generations;
 
     /// Return [generation index, entity index]
-    static std::tuple<u32, u32> parse_entity(Entity entity) {
-        auto ei = (u32)entity;
-        auto gi = (u32)(entity >> 32);
+    static std::tuple<u32, u32> parse_entity(const Entity entity) {
+        auto ei = static_cast<u32>(entity);
+        auto gi = static_cast<u32>(entity >> 32);
 
         return std::make_tuple(gi, ei);
     }
@@ -95,8 +95,8 @@ public:
 
     Entity entity() {
         while (true) {
-            auto index = generations[generation_index].pop_entity_index();
-            if (index.has_value()) {
+            if (auto index = generations[generation_index].pop_entity_index();
+                index.has_value()) {
                 return index.value();
             } else {
                 generation_index = (generation_index + 1) % MAX_GENERATION;
@@ -114,19 +114,155 @@ public:
 
 #pragma endregion
 
-
-/// An Untyped Array
-class Column {
+class UntypedPtr {
 private:
-    void* elements; // buffer with component data
-    usize element_size; // size of a single element
-    usize count; // number of elements
+    void* ptr;
+    usize size;
 
 public:
-    void* operator[](const usize index) const {
-        return (static_cast<char*>(elements) + element_size * index);
+    UntypedPtr(void* ptr, const usize size) : ptr(ptr), size(size) {
     }
 
+    void copy_value_to(void* dst) const {
+        memcpy(dst, ptr, size);
+    }
+
+    template <typename T> static UntypedPtr from_typed_ptr(T* value_ptr) {
+        return UntypedPtr(static_cast<void*>(value_ptr), sizeof(T));
+    }
+
+    template <typename T> T* into_typed() const {
+        if (sizeof(T) != size) {
+            throw "Type's size is not matched!";
+        }
+        return static_cast<T*>(ptr);
+    }
+
+    bool is_not_null() const {
+        return ptr != nullptr && size > 0;
+    }
+
+    static UntypedPtr null() {
+        return UntypedPtr(nullptr, 0);
+    }
+};
+
+class UntypedArray {
+private:
+    void* start_ptr = nullptr;
+    /// Capacity of elements;
+    usize capacity{};
+    /// Count of elements
+    Optional<usize> end_index = std::nullopt;
+    /// Size of an element
+    usize element_byte_size;
+    HashSet<usize> removed_indices;
+
+    void* get_ptr_at(const usize index) {
+        return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(start_ptr) +
+                                       element_byte_size * index);
+    }
+
+    usize byte_capacity_in_memory() const {
+        return capacity * element_byte_size;
+    }
+
+    void increase() {
+        capacity *= 2;
+        realloc_memory();
+    }
+
+    void realloc_memory() {
+        start_ptr = realloc(start_ptr, byte_capacity_in_memory());
+    }
+
+    void end_index_increase() {
+        if (end_index) {
+            *end_index += 1;
+        } else {
+            end_index = 0;
+        }
+    }
+
+    void end_index_decrease() {
+        if (!end_index)
+            throw "Array is empty! You can't access it by index.";
+        if (*end_index == 0) {
+            end_index = std::nullopt;
+        } else {
+            *end_index -= 1;
+        }
+    }
+
+public:
+    explicit UntypedArray(const usize element_size_in_byte,
+                          const usize capacity = 4)
+        : capacity(capacity), element_byte_size(element_size_in_byte) {
+
+        realloc_memory();
+    }
+
+    usize size() const {
+        if (end_index) {
+            return *end_index + 1 - removed_indices.size();
+        }
+        return 0;
+    }
+
+    void push(const UntypedPtr&& value) {
+        usize index = 0;
+        if (!removed_indices.empty()) {
+            index = (*removed_indices.begin());
+            removed_indices.extract(index);
+        } else {
+            end_index_increase();
+            index = *end_index;
+            if (end_index >= capacity)
+                increase();
+        }
+        void* p = get_ptr_at(index);
+        value.copy_value_to(p);
+    }
+
+    template <typename T>
+    void push(T* value) {
+        this->push(UntypedPtr::from_typed_ptr(value));
+    }
+
+    template <typename T>
+    T pop_back() {
+        return remove<T>(end_index);
+    }
+
+    template <typename T>
+    T remove(const usize index) {
+        if (end_index && index == *end_index) {
+            end_index_decrease();
+            while (end_index && removed_indices.contains(*end_index)) {
+                removed_indices.extract(*end_index);
+                end_index_decrease();
+            }
+        } else {
+            removed_indices.insert(index);
+        }
+        return *get_typed<T>(index);
+    }
+
+    UntypedPtr get(const size_t index) {
+        return {get_ptr_at(index), element_byte_size};
+    }
+
+    template <typename T> T* get_typed(const usize index) {
+        return static_cast<T*>(get_ptr_at(index));
+    }
+
+    UntypedPtr operator[](const usize index) {
+        return get(index);
+    }
+
+    Optional<usize> get_end_index() const {
+        return end_index;
+    }
 };
 
 class ComponentInfo {
@@ -139,8 +275,8 @@ class Archetype;
 
 class ArchetypeEdge {
 public:
-    Archetype& add;
-    Archetype& remove;
+    Weak<Archetype> add;
+    Weak<Archetype> remove;
 };
 
 class Archetype {
@@ -148,13 +284,13 @@ public:
     ArchetypeId id;
     Type type;
     Vec<ComponentInfo> component_infos;
-    Vec<Column> columns;
+    Vec<UntypedArray> columns;
     HashMap<ComponentId, ArchetypeEdge> edges;
 };
 
 class Record {
 public:
-    Archetype& archetype;
+    Shared<Archetype> archetype;
     usize row;
 };
 
@@ -172,10 +308,10 @@ private:
     HashMap<Type, Archetype> archetype_index{};
     HashMap<ComponentId, ComponentInfo> component_info_index{};
 
-private:
-    template<typename T>
+public:
+    template <typename T>
     static ComponentId component_type_of() {
-        return static_cast<u64>(typeid(T).name());
+        return reinterpret_cast<u64>(typeid(T).name());
     }
 
     void move_entity(Archetype& archetype, usize row,
@@ -186,36 +322,46 @@ private:
     /// [A, B, C]
     /// [A, C, B, D]
     /// [B, C]
-    template<typename T>
-    void move_entity_caused_by_adding(Archetype& archetype, usize row, Archetype& next_archetype, T&& component) {
+    template <typename T>
+    void move_entity_caused_by_adding(Archetype& archetype, usize row,
+                                      Archetype& next_archetype,
+                                      T&& component) {
         auto& type = archetype.type;
         auto& new_type = archetype.type;
-        if (const ComponentId id = component_type_of<T>(); component_info_index.contains(id)) {
-             for (ComponentInfo target_info : next_archetype.component_infos) {
+        if (const ComponentId id = component_type_of<T>(); component_info_index.
+            contains(id)) {
+            for (ComponentInfo target_info : next_archetype.component_infos) {
 
-             }
+            }
         }
     }
-    void move_entity_caused_by_removing(Archetype& archetype, usize row, Archetype& next_archetype, void* component) {
+
+    void move_entity_caused_by_removing(Archetype& archetype, usize row,
+                                        Archetype& next_archetype,
+                                        void* component) {
 
     }
 
 public:
-    void* get_component(const Entity entity, const ComponentId cp) {
+    UntypedPtr get_component(const Entity entity, const ComponentId cp) {
         const auto& [archetype, row] = entity_index[entity];
 
         auto& archetypes = component_index[cp];
-        if (!archetypes.contains(archetype.id)) {
-            return nullptr;
+        if (!archetypes.contains(archetype->id)) {
+            return UntypedPtr::null();
         }
-        const auto& arche_record = archetypes[archetype.id];
-        return archetype.columns[arche_record.column][row];
+        const auto& arche_record = archetypes[archetype->id];
+        return archetype->columns[arche_record.column][row];
     }
 
     void add_component(const Entity entity, const ComponentId component) {
         const auto& [archetype, row] = entity_index[entity];
-        auto& next_archetype = archetype.edges[component].add;
-        move_entity(archetype, row, next_archetype);
+        if (const auto& next_archetype = archetype->edges[component].add;
+            next_archetype.expired()) {
+            //todo create new archetype
+        } else {
+            move_entity(*archetype, row, *next_archetype.lock());
+        }
     }
 };
 
